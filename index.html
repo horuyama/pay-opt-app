@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>最適決済マップ（PWA）</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#111111">
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans JP","Hiragino Kaku Gothic ProN",sans-serif;margin:0}
+    header{padding:12px 16px;border-bottom:1px solid #eee;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    h1{font-size:18px;margin:0}
+    #map{height:58vh}
+    .panel{padding:12px 16px}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+    label{font-size:12px;color:#555}
+    input,select,button{font-size:14px;padding:8px;border:1px solid #ddd;border-radius:8px}
+    button.primary{background:#111;color:#fff;border-color:#111;cursor:pointer}
+    .card{border:1px solid #eee;border-radius:12px;padding:12px;margin-top:12px}
+    .small{font-size:12px;color:#666}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#f2f2f2;font-size:12px;margin-right:6px}
+    .result-ttl{font-weight:600;font-size:16px;margin:0 0 4px}
+  </style>
+  <script>
+    if ('serviceWorker' in navigator) { navigator.serviceWorker.register('service-worker.js'); }
+  </script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+</head>
+<body>
+<header>
+  <h1>最適決済マップ</h1>
+  <span class="small">CSVを編集→公開URLを貼ると最新キャンペーンを反映</span>
+</header>
+<div id="map"></div>
+<div class="panel">
+  <div class="row">
+    <div>
+      <label>店舗名/キーワード</label><br>
+      <input id="merchant" placeholder="例: セブンイレブン 田町駅前店">
+    </div>
+    <div>
+      <label>カテゴリ</label><br>
+      <select id="category"></select>
+    </div>
+    <div>
+      <label>メモ（任意）</label><br>
+      <input id="note" placeholder="レシートNo. 等">
+    </div>
+    <div>
+      <button class="primary" id="recommend">最適カード</button>
+    </div>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <div style="flex:1;min-width:260px">
+      <label>キャンペーンCSV URL（公開CSV）</label><br>
+      <input id="campaignUrl" placeholder="例: https://.../pub?output=csv">
+    </div>
+    <div><button id="loadCampaigns">読込/更新</button></div>
+  </div>
+  <div id="result" class="card" style="display:none"></div>
+  <div id="campList" class="card" style="display:none"></div>
+  <div class="small" style="margin-top:8px">
+    付属CSV: <a href="pay_opt_rules.csv">ルール</a> ／ <a href="pay_opt_campaigns.csv">キャンペーン</a>
+  </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script>
+const RULES = [];
+const RULES_CSV_PATH = "pay_opt_rules.csv";
+let CAMPAIGNS = [];
+
+async function loadRules() {
+  const res = await fetch(RULES_CSV_PATH);
+  if (!res.ok) return;
+  const text = await res.text();
+  const rows = parseCSV(text);
+  const header = rows[0] || [];
+  const idx = Object.fromEntries(header.map((h,i)=>[h,i]));
+  const cats = new Set();
+  rows.slice(1).forEach(r=>{
+    const item = {
+      category: r[idx["category"]]||"",
+      merchant_pattern: r[idx["merchant_pattern"]]||"",
+      card: r[idx["card"]]||"",
+      rate_percent: parseFloat(r[idx["rate_percent"]]||"0"),
+      reason: r[idx["reason"]]||""
+    };
+    RULES.push(item);
+    if (item.category) cats.add(item.category);
+  });
+  const sel = document.getElementById('category');
+  sel.innerHTML = '<option value="">自動判定</option>' + Array.from(cats).map(c=>`<option>${c}</option>`).join('');
+}
+
+function parseCSV(csv) {
+  const lines = csv.split(/\r?\n/).filter(x=>x!=='');
+  const out = [];
+  for (let line of lines) {
+    const row = [];
+    let cur = ''; let inQ = false;
+    for (let i=0;i<line.length;i++) {
+      const ch = line[i];
+      if (ch === '"') { if (inQ && line[i+1]==='"') { cur+='"'; i++; } else inQ = !inQ; }
+      else if (ch === ',' && !inQ) { row.push(cur); cur=''; }
+      else { cur += ch; }
+    }
+    row.push(cur);
+    out.push(row);
+  }
+  return out;
+}
+
+function guessByMerchant(name) {
+  const hits = [];
+  RULES.forEach(r => {
+    const re = new RegExp(r.merchant_pattern, 'i');
+    if (re.test(name)) hits.push(r);
+  });
+  return hits;
+}
+
+function activeCampaignsFor(name, cat, todayStr) {
+  const t = new Date(todayStr + "T00:00:00");
+  const hits = [];
+  for (const c of CAMPAIGNS) {
+    const re = new RegExp(c.merchant_pattern, 'i');
+    if (name && !re.test(name)) continue;
+    if (c.category && cat && c.category !== cat) continue;
+    const s = new Date(c.start_date+"T00:00:00");
+    const e = new Date(c.end_date+"T23:59:59");
+    if (t>=s && t<=e) hits.push(c);
+  }
+  hits.sort((a,b)=> (b.priority||0) - (a.priority||0) || (b.bonus_rate_percent||0) - (a.bonus_rate_percent||0));
+  return hits;
+}
+
+function bestByCategory(cat) {
+  const candidates = RULES.filter(r => r.category === cat);
+  if (!candidates.length) return null;
+  candidates.sort((a,b)=> b.rate_percent - a.rate_percent);
+  return candidates[0];
+}
+
+function bestOverall(name, cat, todayStr) {
+  let base = null;
+  if (cat) base = bestByCategory(cat);
+  if (!base && name) {
+    const m = guessByMerchant(name);
+    if (m.length) m.sort((a,b)=> b.rate_percent - a.rate_percent), base = m[0];
+  }
+  if (!base) base = RULES.find(r => r.category.includes("一般"));
+
+  const camps = activeCampaignsFor(name, cat, todayStr);
+  let eff = Object.assign({}, base);
+  let applied = [];
+  for (const c of camps) {
+    if (c.card_override) eff.card = c.card_override;
+    eff.rate_percent = (parseFloat(eff.rate_percent)||0) + (parseFloat(c.bonus_rate_percent)||0);
+    applied.push(c);
+  }
+  return { eff, applied };
+}
+
+function renderResult(bundle, name, cat, note, todayStr) {
+  const el = document.getElementById('result');
+  const cm = document.getElementById('campList');
+  const { eff, applied } = bundle;
+  if (!eff) {
+    el.style.display = 'block';
+    el.innerHTML = `<div class="result-ttl">候補が見つかりませんでした</div>
+      <div class="small">カテゴリの手動選択やCSVのルール追加をお試しください。</div>`;
+    cm.style.display = 'none';
+    return;
+  }
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="pill">推奨</div>
+    <div class="result-ttl">${eff.card}</div>
+    <div class="small">推定還元率: <b>${(eff.rate_percent||0).toFixed(2)}</b>%</div>
+    <div class="small">理由: ${eff.reason || 'ベース＋キャンペーン'}</div>
+    <div class="small" style="margin-top:6px">
+      入力: <b>${name || '(名称未入力)'} / ${cat || '自動判定'}</b> ｜ ${todayStr} ${note ? '｜メモ: ' + note : ''}
+    </div>
+  `;
+  cm.style.display = 'block';
+  cm.innerHTML = applied.length
+    ? `<div class="pill">適用キャンペーン</div>` + applied.map(c=>`
+        <div class="small" style="margin-top:6px">
+          <b>+${c.bonus_rate_percent}%</b>（${c.start_date}〜${c.end_date}）｜優先度 ${c.priority||0}<br>
+          対象: <code>${c.merchant_pattern}</code> ${c.category?('／カテゴリ: '+c.category):''}<br>
+          ${c.card_override ? ('カード指定: <b>'+c.card_override+'</b><br>') : ''}
+          ${c.note ? ('メモ: '+c.note+' ') : ''}
+          ${c.source ? ('<span class="small">['+c.source+']</span>') : ''}
+        </div>`).join('')
+    : `<div class="small">該当するキャンペーンはありません。</div>`;
+}
+
+async function fetchCampaignCSV(url) {
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error('fetch failed');
+    const text = await res.text();
+    const rows = parseCSV(text);
+    const header = rows[0] || [];
+    const idx = Object.fromEntries(header.map((h,i)=>[h,i]));
+    CAMPAIGNS = rows.slice(1).map(r=> ({
+      merchant_pattern: r[idx["merchant_pattern"]]||"",
+      category: r[idx["category"]]||"",
+      card_override: r[idx["card_override"]]||"",
+      bonus_rate_percent: parseFloat(r[idx["bonus_rate_percent"]]||"0"),
+      start_date: r[idx["start_date"]]||"",
+      end_date: r[idx["end_date"]]||"",
+      note: r[idx["note"]]||"",
+      source: r[idx["source"]]||"",
+      priority: parseInt(r[idx["priority"]]||"0")
+    })).filter(x=>x.merchant_pattern && x.start_date && x.end_date);
+    return true;
+  } catch(e) {
+    console.error(e);
+    CAMPAIGNS = [];
+    return false;
+  }
+}
+
+(function init() {
+  loadRules();
+  const map = L.map('map', { zoomControl: true }).setView([35.681236, 139.767125], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  let lastMarker = null;
+
+  document.getElementById('recommend').addEventListener('click', async ()=> {
+    const name = document.getElementById('merchant').value.trim();
+    const cat  = document.getElementById('category').value.trim();
+    const note = document.getElementById('note').value.trim();
+    const todayStr = new Date().toISOString().slice(0,10);
+
+    map.once('click', (e)=> {
+      if (lastMarker) map.removeLayer(lastMarker);
+      lastMarker = L.marker(e.latlng).addTo(map).bindPopup(name || '店舗').openPopup();
+    });
+
+    const inputURL = document.getElementById('campaignUrl').value.trim();
+    if (inputURL) await fetchCampaignCSV(inputURL);
+
+    const bundle = bestOverall(name, cat || '', todayStr);
+    renderResult(bundle, name, cat || '', note, todayStr);
+  });
+
+  document.getElementById('loadCampaigns').addEventListener('click', async ()=> {
+    const url = document.getElementById('campaignUrl').value.trim();
+    if (!url) { alert('公開CSVのURLを入力してください'); return; }
+    const ok = await fetchCampaignCSV(url);
+    alert(ok ? 'キャンペーンを更新しました' : '取得に失敗しました');
+  });
+})();
+</script>
+</body>
+</html>
