@@ -1,0 +1,223 @@
+[
+  {
+    "name": "セブンイレブン特典（例）",
+    "match": [
+      "セブンイレブン",
+      "セブン-イレブン",
+      "セブン‐イレブン",
+      "セブン－イレブン",
+      "セブン・イレブン",
+      "7-Eleven",
+      "ｾﾌﾞﾝｲﾚﾌﾞﾝ"
+    ],
+    "category": "convenience_store",
+    "bonuses": [
+      {
+        "card": "三井住友カードゴールドNL",
+        "bonus": 6.0
+      }
+    ]
+  },
+  {
+    "name": "ファミマ特典（例）",
+    "match": [
+      "ファミリーマート",
+      "ﾌｧﾐﾘｰﾏｰﾄ",
+      "FamilyMart",
+      "ファミマ"
+    ],
+    "category": "convenience_store",
+    "bonuses": [
+      {
+        "card": "三井住友カードゴールドNL",
+        "bonus": 5.0
+      }
+    ]
+  },
+  {
+    "name": "ローソン特典（例）",
+    "match": [
+      "ローソン",
+      "LAWSON",
+      "ﾛｰｿﾝ"
+    ],
+    "category": "convenience_store",
+    "bonuses": [
+      {
+        "card": "三井住友カードゴールドNL",
+        "bonus": 5.0
+      }
+    ]
+  },
+  {
+    "name": "吉野家×エポス（例）",
+    "match": [
+      "吉野家",
+      "Yoshinoya"
+    ],
+    "category": "restaurant",
+    "bonuses": [
+      {
+        "card": "JQエポスゴールド",
+        "bonus": 2.0
+      }
+    ]
+  },
+  {
+    "name": "すき家×エポス（例）",
+    "match": [
+      "すき家",
+      "Sukiya"
+    ],
+    "category": "restaurant",
+    "bonuses": [
+      {
+        "card": "JQエポスゴールド",
+        "bonus": 2.0
+      }
+    ]
+  },
+  {
+    "name": "松屋×MUFG（例）",
+    "match": [
+      "松屋",
+      "Matsuya"
+    ],
+    "category": "restaurant",
+    "bonuses": [
+      {
+        "card": "三菱UFJカード",
+        "bonus": 6.0
+      }
+    ]
+  },
+  {
+    "name": "ウエル活（20日）Tポイント払い相当（例）",
+    "match": [
+      "ウエルシア"
+    ],
+    "category": "drugstore",
+    "dateRule": {
+      "monthDays": [
+        20
+      ]
+    },
+    "bonuses": [
+      {
+        "card": "ウエルシアカード",
+        "bonus": 10.0
+      }
+    ]
+  },
+  {
+    "name": "イオン お客様感謝デー5%OFF（例）",
+    "match": [
+      "イオン"
+    ],
+    "category": "supermarket",
+    "dateRule": {
+      "monthDays": [
+        20,
+        30
+      ]
+    },
+    "bonuses": [
+      {
+        "card": "JQエポスゴールド",
+        "bonus": 2.0
+      }
+    ]
+  },
+  {
+    "name": "イトーヨーカドー ハッピーデー5%OFF（例）",
+    "match": [
+      "イトーヨーカドー",
+      "ヨーカドー"
+    ],
+    "category": "supermarket",
+    "dateRule": {
+      "monthDays": [
+        8,
+        18,
+        28
+      ]
+    },
+    "bonuses": [
+      {
+        "card": "JREカード",
+        "bonus": 2.0
+      }
+    ]
+  },
+  {
+    "name": "西友 楽天カードデー（例）",
+    "match": [
+      "西友"
+    ],
+    "category": "supermarket",
+    "weekdayRule": {
+      "weekdays": [
+        6
+      ]
+    },
+    "bonuses": [
+      {
+        "card": "楽天カード",
+        "bonus": 2.0
+      }
+    ]
+  },
+  {
+    "name": "OK×MUFG（例）",
+    "match": [
+      "オーケー",
+      "OK "
+    ],
+    "category": "supermarket",
+    "bonuses": [
+      {
+        "card": "三菱UFJカード",
+        "bonus": 6.0
+      }
+    ]
+  },
+  {
+    "name": "東急ストア×MUFG（例）",
+    "match": [
+      "東急ストア"
+    ],
+    "category": "supermarket",
+    "bonuses": [
+      {
+        "card": "三菱UFJカード",
+        "bonus": 6.0
+      }
+    ]
+  },
+  {
+    "name": "東武ストア×MUFG（例）",
+    "match": [
+      "東武ストア"
+    ],
+    "category": "supermarket",
+    "bonuses": [
+      {
+        "card": "三菱UFJカード",
+        "bonus": 6.0
+      }
+    ]
+  },
+  {
+    "name": "オオゼキ×MUFG（例）",
+    "match": [
+      "オオゼキ"
+    ],
+    "category": "supermarket",
+    "bonuses": [
+      {
+        "card": "三菱UFJカード",
+        "bonus": 6.0
+      }
+    ]
+  }
+]
