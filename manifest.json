@@ -1,0 +1,20 @@
+{
+  "name": "Pay Optimizer Map",
+  "short_name": "PayOpt",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "description": "店舗ごとに最適な決済手段を提示するPWA",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

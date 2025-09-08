@@ -1,0 +1,3 @@
+html,body,#map{height:100%;margin:0;padding:0}
+#searchbar{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1000;background:#fff;padding:4px;border-radius:4px;box-shadow:0 2px 4px rgba(0,0,0,0.3)}
+#searchbar input{width:160px}
