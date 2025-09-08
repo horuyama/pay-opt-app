@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Pay Optimizer Map</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous">
+  <link rel="stylesheet" href="style.css?v=cssfix1">
+  <style>
+    /* inline fallback: 万が一 style.css が読めなくても地図が出る */
+    html, body { height: 100%; margin: 0; }
+    #map { height: 100%; }
+    #err{position:fixed;left:8px;right:8px;bottom:8px;background:#fee;border:1px solid #f99;border-radius:8px;padding:8px;display:none;z-index:2000;color:#900}
+  </style>
+</head>
+<body>
+  <div id="err"></div>
+  <div id="map" aria-label="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
+  <script src="app.js?v=cssfix1"></script>
+</body>
+</html>
