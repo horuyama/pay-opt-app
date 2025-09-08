@@ -1,6 +1,8 @@
+// v2: cache name bump to refresh assets
+const CACHE_NAME = "pay-opt-v2";
 self.addEventListener("install", e => {
   e.waitUntil(
-    caches.open("pay-opt-v1").then(cache =>
+    caches.open(CACHE_NAME).then(cache =>
       cache.addAll([
         "./index.html",
         "./manifest.json",
@@ -10,6 +12,13 @@ self.addEventListener("install", e => {
         "./icon-512.png"
       ])
     )
+  );
+});
+self.addEventListener("activate", event => {
+  event.waitUntil(
+    caches.keys().then(keys => Promise.all(
+      keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+    ))
   );
 });
 self.addEventListener("fetch", e => {

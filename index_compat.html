@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>最適決済マップ（互換版）</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#111111">
+  <style>
+    html,body{height:100%}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans JP","Hiragino Kaku Gothic ProN",sans-serif;margin:0}
+    header{padding:10px 14px;border-bottom:1px solid #eee;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    h1{font-size:16px;margin:0}
+    #map{height:64vh;min-height:320px}
+    .panel{padding:10px 14px}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start}
+    label{font-size:12px;color:#555}
+    input,textarea,button{font-size:14px;padding:8px;border:1px solid #ddd;border-radius:8px}
+    textarea{width:360px;height:72px;max-width:100%}
+    button.primary{background:#111;color:#fff;border-color:#111;cursor:pointer}
+    .card{border:1px solid #eee;border-radius:12px;padding:12px;margin-top:10px}
+    .small{font-size:12px;color:#666}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#f2f2f2;font-size:12px;margin-right:6px}
+    .result-ttl{font-weight:600;font-size:16px;margin:0 0 4px}
+    .list{display:flex;overflow:auto;gap:8px;padding:6px 0}
+    .chip{border:1px solid #ddd;border-radius:999px;padding:6px 10px;font-size:12px;cursor:pointer;white-space:nowrap}
+    .chip.sel{background:#111;color:#fff;border-color:#111}
+  </style>
+  <script>
+    if ('serviceWorker' in navigator){navigator.serviceWorker.register('service-worker.js');}
+    // 古いSafari向け：エラーを捕捉して画面に出す
+    window.addEventListener('error', function(e){
+      var box = document.getElementById('errbox');
+      if(!box) return;
+      box.style.display='block';
+      box.textContent = 'スクリプトエラー: ' + e.message;
+    });
+  </script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+</head>
+<body>
+<header>
+  <h1>最適決済マップ</h1>
+  <span class="small">互換版：古いiPad Safariでも表示可（店名自動取得＆キャンペーン対応）。</span>
+</header>
+
+<div id="map"></div>
+
+<div class="panel">
+  <div id="errbox" class="small" style="display:none;color:#b00"></div>
+  <div class="row">
+    <div style="flex:1;min-width:260px">
+      <label>キャンペーンCSV URL（複数可。1行=1URL）</label><br>
+      <textarea id="campaignUrls" placeholder="https://.../pub?output=csv"></textarea>
+      <div class="small">衝突時は priority 降順 → bonus_rate_percent 降順。</div>
+    </div>
+    <div>
+      <label>更新間隔（分・最短10）</label><br>
+      <input id="pollMins" type="number" value="180" style="width:120px">
+      <div style="margin-top:6px"><button id="loadCampaigns">今すぐ読込／開始</button></div>
+    </div>
+  </div>
+
+  <div id="poiWrap" class="card" style="display:none">
+    <div class="small">候補（近い順）</div>
+    <div id="poiList" class="list"></div>
+  </div>
+
+  <div id="result" class="card" style="display:none"></div>
+  <div id="campList" class="card" style="display:none"></div>
+
+  <div class="small" style="margin-top:8px">
+    付属CSV: <a href="pay_opt_rules.csv">ルール</a> ／ <a href="pay_opt_campaigns.csv">サンプル</a>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ====== 汎用 ======
+function qs(id){ return document.getElementById(id); }
+function parseCSV(csv){
+  var lines = csv.split(/\r?\n/);
+  var out=[], i, line;
+  for(i=0;i<lines.length;i++){
+    line = lines[i];
+    if(!line) continue;
+    var row=[], cur='', inQ=false, j, ch;
+    for(j=0;j<line.length;j++){
+      ch=line[j];
+      if (ch=='"'){
+        if(inQ && line[j+1]=='"'){ cur+='"'; j++; }
+        else { inQ=!inQ; }
+      } else if (ch==',' && !inQ){ row.push(cur); cur=''; }
+      else { cur+=ch; }
+    }
+    row.push(cur); out.push(row);
+  }
+  return out;
+}
+function get(obj, path, def){
+  // optional chaining 代替: get(obj, ["a","b","c"], default)
+  var o=obj, k=0;
+  while (o && k<path.length){ o = o[path[k++]]; }
+  return (o===undefined || o===null) ? def : o;
+}
+
+// ====== ルール/キャンペーン ======
+var RULES_CSV_PATH = "pay_opt_rules.csv";
+var RULES = [];
+var CAMPAIGNS = [];
+var pollTimer = null;
+
+function loadRules(){
+  return fetch(RULES_CSV_PATH).then(function(res){
+    if(!res.ok) return;
+    return res.text();
+  }).then(function(text){
+    var rows = parseCSV(text||"");
+    if (!rows.length) return;
+    var header = rows[0]||[];
+    var idx = {}; for (var i=0;i<header.length;i++){ idx[header[i]] = i; }
+    RULES = rows.slice(1).map(function(r){
+      return {
+        category: r[idx["category"]]||"",
+        merchant_pattern: r[idx["merchant_pattern"]]||"",
+        card: r[idx["card"]]||"",
+        rate_percent: parseFloat(r[idx["rate_percent"]]||"0"),
+        reason: r[idx["reason"]]||""
+      };
+    });
+  });
+}
+
+function fetchCampaignCSV(url){
+  return fetch(url, {cache:'no-store'}).then(function(res){
+    if(!res.ok) throw 0;
+    return res.text();
+  }).then(function(text){
+    var rows = parseCSV(text||"");
+    var header = rows[0]||[];
+    var idx = {}; for (var i=0;i<header.length;i++){ idx[header[i]] = i; }
+    var arr = rows.slice(1).map(function(r){
+      return {
+        merchant_pattern: r[idx["merchant_pattern"]]||"",
+        category: r[idx["category"]]||"",
+        card_override: r[idx["card_override"]]||"",
+        bonus_rate_percent: parseFloat(r[idx["bonus_rate_percent"]]||"0"),
+        start_date: r[idx["start_date"]]||"",
+        end_date: r[idx["end_date"]]||"",
+        note: r[idx["note"]]||"",
+        source: r[idx["source"]]||"",
+        priority: parseInt(r[idx["priority"]]||"0")
+      };
+    }).filter(function(x){ return x.merchant_pattern && x.start_date && x.end_date; });
+    return arr;
+  })["catch"](function(){ return []; });
+}
+
+function refreshCampaigns(urlsText){
+  var urls = (urlsText||"").split(/\r?\n/).map(function(s){return (s||"").trim();}).filter(Boolean);
+  var merged = [];
+  var p = Promise.resolve();
+  urls.forEach(function(u){
+    p = p.then(function(){ return fetchCampaignCSV(u); }).then(function(part){ merged = merged.concat(part); });
+  });
+  return p.then(function(){
+    var today = new Date().toISOString().slice(0,10);
+    CAMPAIGNS = merged.filter(function(c){
+      var s = new Date(c.start_date+"T00:00:00");
+      var e = new Date(c.end_date+"T23:59:59");
+      var t = new Date(today+"T00:00:00");
+      return t>=s && t<=e;
+    }).sort(function(a,b){
+      return (b.priority||0)-(a.priority||0) || (b.bonus_rate_percent||0)-(a.bonus_rate_percent||0);
+    });
+  });
+}
+
+function startPolling(){
+  if (pollTimer) clearInterval(pollTimer);
+  var mins = Math.max(10, parseInt(qs('pollMins').value||'180',10));
+  var urls = qs('campaignUrls').value;
+  var run = function(){ refreshCampaigns(urls); };
+  run();
+  pollTimer = setInterval(run, mins*60*1000);
+}
+
+// ====== 判定ロジック ======
+function activeCampaignsFor(hay, baseCat){
+  var hits = [];
+  for (var i=0;i<CAMPAIGNS.length;i++){
+    var c = CAMPAIGNS[i];
+    try {
+      var re = new RegExp(c.merchant_pattern, 'i');
+      if (hay && !re.test(hay)) continue;
+      if (c.category && baseCat && c.category!==baseCat) continue;
+      hits.push(c);
+    } catch(e){ /* 無効な正規表現は無視 */ }
+  }
+  return hits;
+}
+
+function bestFor(name, tagText){
+  var hay = (name||"") + " " + (tagText||"");
+  var matched = [];
+  for (var i=0;i<RULES.length;i++){
+    try {
+      var r = RULES[i];
+      var re = new RegExp(r.merchant_pattern, 'i');
+      if (re.test(hay)) matched.push(r);
+    } catch(e){}
+  }
+  matched.sort(function(a,b){ return b.rate_percent - a.rate_percent; });
+  var base = matched.length ? matched[0] : (function(){
+    for (var j=0;j<RULES.length;j++){
+      if ((RULES[j].category||'').indexOf('一般')!==-1) return RULES[j];
+    }
+    return null;
+  })();
+  var camps = activeCampaignsFor(hay, base && base.category ? base.category : "");
+  var eff = base ? JSON.parse(JSON.stringify(base)) : {card:"（未定義）", rate_percent:0, reason:""};
+  var applied = [];
+  for (var k=0;k<camps.length;k++){
+    var c = camps[k];
+    if (c.card_override) eff.card = c.card_override;
+    eff.rate_percent = (parseFloat(eff.rate_percent)||0) + (parseFloat(c.bonus_rate_percent)||0);
+    applied.push(c);
+  }
+  return {eff: eff, applied: applied};
+}
+
+// ====== OSM（Overpass） ======
+function overpassAround(lat, lon){
+  var q = '[out:json][timeout:10];'
+        + '(node(around:70,'+lat+','+lon+')[name];'
+        + ' node(around:70,'+lat+','+lon+')[brand];'
+        + ' node(around:70,'+lat+','+lon+')[amenity];'
+        + ' node(around:70,'+lat+','+lon+')[shop];'
+        + ' way(around:70,'+lat+','+lon+')[name];'
+        + ' way(around:70,'+lat+','+lon+')[brand];'
+        + ' way(around:70,'+lat+','+lon+')[amenity];'
+        + ' way(around:70,'+lat+','+lon+')[shop];);'
+        + ' out tags center 30;';
+  return fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:q})
+    .then(function(res){ return res.json(); })
+    .then(function(json){
+      var arr = [];
+      var els = (json && json.elements) ? json.elements : [];
+      for (var i=0;i<els.length;i++){
+        var e = els[i];
+        var tags = e && e.tags ? e.tags : {};
+        arr.push({
+          name: tags.name || "",
+          addr: tags.addr_full || "",
+          tags: tags,
+          lat: (e.lat ? e.lat : (e.center ? e.center.lat : null)),
+          lon: (e.lon ? e.lon : (e.center ? e.center.lon : null))
+        });
+      }
+      return arr;
+    })["catch"](function(){ return []; });
+}
+
+// ====== UI描画 ======
+function showPOIChips(pois, onPick){
+  var wrap = qs('poiWrap');
+  var list = qs('poiList');
+  if(!pois.length){wrap.style.display='none'; return;}
+  wrap.style.display='block';
+  list.innerHTML='';
+  for (var i=0;i<Math.min(8, pois.length); i++){
+    (function(i){
+      var p = pois[i];
+      var label = p.name || p.tags.brand || p.tags.operator || p.tags.shop || p.tags.amenity || '(名称不明)';
+      var el = document.createElement('div');
+      el.className = 'chip' + (i===0 ? ' sel' : '');
+      el.textContent = label;
+      el.onclick = function(){
+        var kids = list.children; for (var k=0;k<kids.length;k++){ kids[k].classList.remove('sel'); }
+        el.classList.add('sel'); onPick(p);
+      };
+      list.appendChild(el);
+    })(i);
+  }
+}
+
+function render(name, addr, tags, bundle, latlng){
+  var res = qs('result'), cm = qs('campList');
+  var eff = bundle.eff, applied = bundle.applied;
+  res.style.display='block';
+  res.innerHTML = ''
+    + '<div class="pill">推奨</div>'
+    + '<div class="result-ttl">' + eff.card + '</div>'
+    + '<div class="small">推定還元率: <b>' + ((+eff.rate_percent||0).toFixed(2)) + '</b>%</div>'
+    + '<div class="small">店舗: <b>' + (name||'(名称不明)') + '</b> ／ ' + (addr||'') + '</div>'
+    + '<div class="small">タグ: ' + (tags||'-') + '</div>';
+  cm.style.display='block';
+  if (applied.length){
+    var html = '<div class="pill">適用キャンペーン</div>';
+    for (var i=0;i<applied.length;i++){
+      var c = applied[i];
+      html += '<div class="small" style="margin-top:6px">'
+            + '<b>+' + c.bonus_rate_percent + '%</b>（' + c.start_date + '〜' + c.end_date + '）｜優先度 ' + (c.priority||0) + '<br>'
+            + '対象: <code>' + c.merchant_pattern + '</code> ' + (c.category?('／カテゴリ: '+c.category):'') + '<br>'
+            + (c.card_override?('カード指定: <b>'+c.card_override+'</b><br>'):'')
+            + (c.note?('メモ: '+c.note+' '):'') + (c.source?('<span class="small">['+c.source+']</span>'):'')
+            + '</div>';
+    }
+    cm.innerHTML = html;
+  } else {
+    cm.innerHTML = '<div class="small">該当するキャンペーンはありません。</div>';
+  }
+  if (window._marker){ window._map.removeLayer(window._marker); }
+  window._marker = L.marker(latlng).addTo(window._map).bindPopup((name||'店舗')+'<br><b>'+eff.card+'</b> / '+((+eff.rate_percent||0).toFixed(2))+'%').openPopup();
+}
+
+// ====== 地図初期化 ======
+function initMap(){
+  window._map = L.map('map', { zoomControl:true }).setView([35.681236,139.767125], 15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 20}).addTo(window._map);
+
+  window._map.on('click', function(ev){
+    var lat = ev.latlng.lat, lon = ev.latlng.lng;
+    overpassAround(lat, lon).then(function(pois){
+      showPOIChips(pois, function(p){
+        var name = p.name || p.tags.brand || p.tags.operator || '';
+        var tagText = [p.tags.shop, p.tags.amenity, p.tags.brand, p.tags.operator].filter(function(x){return !!x;}).join(' ');
+        var bundle = bestFor(name, tagText);
+        var latlng = L.latLng(p.lat||lat, p.lon||lon);
+        render(name, p.addr, tagText, bundle, latlng);
+      });
+      if (pois.length){
+        var p = pois[0];
+        var name = p.name || p.tags.brand || p.tags.operator || '';
+        var tagText = [p.tags.shop, p.tags.amenity, p.tags.brand, p.tags.operator].filter(function(x){return !!x;}).join(' ');
+        var bundle = bestFor(name, tagText);
+        var latlng = L.latLng(p.lat||lat, p.lon||lon);
+        render(name, p.addr, tagText, bundle, latlng);
+      } else {
+        var bundle = bestFor('', '');
+        render('(名称不明)', '', '', bundle, ev.latlng);
+      }
+    });
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  loadRules().then(function(){
+    initMap();
+    startPolling();
+  });
+  document.getElementById('loadCampaigns').addEventListener('click', function(){ startPolling(); alert('キャンペーンの自動更新を開始しました'); });
+});
+</script>
+</body>
+</html>
