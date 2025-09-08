@@ -1,18 +1,7 @@
-# 最適決済マップ（PWA）
+# 最適決済マップ（PWA・自動キャンペーン反映）
+1) このフォルダをGitHubリポにアップ → Settings > Pages で公開
+2) 地図をタップ → 周辺POI取得 → 推奨カード/推定還元率を表示
+3) 複数のキャンペーンCSV URL（1行=1URL）を入力し、更新間隔（分）を設定→自動反映
 
-## セットアップ
-1. 本リポジトリを GitHub で作成し、`Settings > Pages` で公開
-2. ブラウザで公開URL（`https://<username>.github.io/<repo>/`）へアクセス
-3. スマホで **ホーム画面に追加**（iOS Safari / Android Chrome）
-
-## 運用
-- `pay_opt_rules.csv`：カード基本ルールを編集（行追加で拡張）
-- `pay_opt_campaigns.csv`：キャンペーンを記録（期間/上乗せ/カード指定）
-- Googleスプレッドシートを「ウェブに公開→CSV」にして、画面の URL 欄に貼れば **自動反映**
-
-## 構成
-- `index.html` … アプリ本体（Leaflet地図＋判定UI、PWA対応）
-- `manifest.json` … PWAメタデータ（名称/テーマ色/アイコン）
-- `service-worker.js` … オフライン用キャッシュ（簡易）
-- `icon-192.png` / `icon-512.png` … アプリアイコン
-- `pay_opt_rules.csv` / `pay_opt_campaigns.csv` … 設定CSV
+CSV列: merchant_pattern, category, card_override, bonus_rate_percent, start_date, end_date, note, source, priority
+優先: priority 降順 → bonus_rate_percent 降順（重複ヒット時）
